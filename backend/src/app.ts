@@ -6,6 +6,7 @@ import morgan from "morgan";
 import { errorHandler } from "./middlewares/error.middleware";
 import { notFoundHandler } from "./middlewares/not-found.middleware";
 import { apiRouter } from "./routes";
+import { sendOk } from "./utils/http-response";
 
 const app = express();
 
@@ -15,11 +16,8 @@ app.use(morgan("dev"));
 app.use(express.json());
 
 app.get("/", (_req, res) => {
-  res.status(200).json({
-    success: true,
-    data: {
-      message: "Audinote backend is running",
-    },
+  sendOk(res, {
+    message: "Audinote backend is running",
   });
 });
 
