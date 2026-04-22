@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,4 +5,264 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum LectureSourceType {
+  LIVE_RECORDING @map("live_recording")
+  FILE_UPLOAD    @map("file_upload")
+
+  @@map("lecture_source_type")
+}
+
+enum LectureStatus {
+  UPLOADING  @map("uploading")
+  PROCESSING @map("processing")
+  GENERATING @map("generating")
+  DONE       @map("done")
+  FAILED     @map("failed")
+
+  @@map("lecture_status")
+}
+
+enum LectureNoteStatus {
+  READY  @map("ready")
+  FAILED @map("failed")
+
+  @@map("lecture_note_status")
+}
+
+enum ExportAction {
+  CREATE   @map("create")
+  UPDATE   @map("update")
+  RECREATE @map("recreate")
+
+  @@map("export_action")
+}
+
+enum ExportStatus {
+  PENDING @map("pending")
+  SUCCESS @map("success")
+  FAILED  @map("failed")
+
+  @@map("export_status")
+}
+
+enum UserExportPreference {
+  AUTO   @map("auto")
+  MANUAL @map("manual")
+
+  @@map("user_export_preference")
+}
+
+enum LectureChunkStatus {
+  PENDING   @map("pending")
+  PROCESSING @map("processing")
+  DONE   @map("done")
+  FAILED     @map("failed")
+
+  @@map("lecture_chunk_status")
+}
+
+enum ProcessingAttemptStatus {
+  STARTED @map("started")
+  SUCCESS @map("success")
+  FAILED  @map("failed")
+
+  @@map("processing_attempt_status")
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  googleSub     String    @unique @map("google_sub")
+  email         String
+  emailVerified Boolean   @default(false) @map("email_verified")
+  displayName   String?   @map("display_name")
+  avatarUrl     String?   @map("avatar_url")
+  exportPreference UserExportPreference @default(MANUAL) @map("export_preference")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz
+
+  googleAccount  UserGoogleAccount?
+  lectures       Lecture[]
+  googleExports  GoogleDocExport[]
+
+  @@map("users")
+}
+
+model UserGoogleAccount {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                String    @unique @map("user_id") @db.Uuid
+  googleEmail           String    @map("google_email")
+  accessTokenEncrypted  String    @map("access_token_encrypted")
+  refreshTokenEncrypted String?   @map("refresh_token_encrypted")
+  tokenExpiresAt        DateTime? @map("token_expires_at") @db.Timestamptz
+  scopes                String[]  @default([])
+  revokedAt             DateTime? @map("revoked_at") @db.Timestamptz
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_google_accounts")
+}
+
+model Lecture {
+  id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                String            @map("user_id") @db.Uuid
+  title                 String?
+  sourceType            LectureSourceType @map("source_type")
+  status                LectureStatus
+  durationSeconds       Int?              @map("duration_seconds")
+  errorMessage          String?           @map("error_message")
+  processingStartedAt   DateTime?         @map("processing_started_at") @db.Timestamptz
+  processingCompletedAt DateTime?         @map("processing_completed_at") @db.Timestamptz
+  createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt             DateTime?         @map("deleted_at") @db.Timestamptz
+
+  user       User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  audioParts LectureAudioPart[]
+  note       LectureNote?
+  exports    GoogleDocExport[]
+  chunks     LectureChunk[]
+  processingAttempts ProcessingStepAttempt[]
+
+  @@index([userId, createdAt(sort: Desc)], map: "idx_lectures_user_created")
+  @@index([userId, status], map: "idx_lectures_user_status")
+  @@map("lectures")
+}
+
+model LectureAudioPart {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  lectureId           String    @map("lecture_id") @db.Uuid
+  partNumber          Int       @map("part_number")
+  s3Bucket            String    @map("s3_bucket")
+  s3Key               String    @map("s3_key")
+  contentType         String    @map("content_type")
+  sizeBytes           BigInt    @map("size_bytes")
+  durationMs          Int?      @map("duration_ms")
+  uploadedAt          DateTime  @default(now()) @map("uploaded_at") @db.Timestamptz
+  expiresAt           DateTime  @map("expires_at") @db.Timestamptz
+  deletedFromStorageAt DateTime? @map("deleted_from_storage_at") @db.Timestamptz
+
+  lecture Lecture @relation(fields: [lectureId], references: [id], onDelete: Cascade)
+
+  @@unique([lectureId, partNumber], map: "uq_audio_parts_lecture_part")
+  @@index([expiresAt], map: "idx_audio_parts_expires_at")
+  @@map("lecture_audio_parts")
+}
+
+model LectureNote {
+  id           String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  lectureId    String            @unique @map("lecture_id") @db.Uuid
+  notesJson    Json              @map("notes_json") @db.JsonB
+  status       LectureNoteStatus
+  errorMessage String?           @map("error_message")
+  generatedAt  DateTime?         @map("generated_at") @db.Timestamptz
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt    DateTime?         @map("deleted_at") @db.Timestamptz
+
+  lecture Lecture @relation(fields: [lectureId], references: [id], onDelete: Cascade)
+
+  @@map("lecture_notes")
+}
+
+model GoogleDocExport {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  lectureId    String       @map("lecture_id") @db.Uuid
+  userId       String       @map("user_id") @db.Uuid
+  googleDocId  String?      @map("google_doc_id")
+  googleDocUrl String?      @map("google_doc_url")
+  action       ExportAction
+  status       ExportStatus
+  errorMessage String?      @map("error_message")
+  attemptedAt  DateTime     @default(now()) @map("attempted_at") @db.Timestamptz
+  completedAt  DateTime?    @map("completed_at") @db.Timestamptz
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz
+
+  lecture Lecture @relation(fields: [lectureId], references: [id], onDelete: Cascade)
+  user    User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([lectureId, attemptedAt(sort: Desc)], map: "idx_exports_lecture_attempted")
+  @@index([userId, attemptedAt(sort: Desc)], map: "idx_exports_user_attempted")
+  @@index([status, attemptedAt(sort: Desc)], map: "idx_exports_status_attempted")
+  @@map("google_doc_exports")
+}
+
+model LectureChunk {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  lectureId         String            @map("lecture_id") @db.Uuid
+  chunkIndex        Int               @map("chunk_index")
+  startMs           Int               @map("start_ms")
+  endMs             Int               @map("end_ms")
+  durationMs        Int               @map("duration_ms")
+  status            LectureChunkStatus
+  attemptCount      Int               @default(0) @map("attempt_count")
+  lastErrorMessage  String?           @map("last_error_message")
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  lecture    Lecture     @relation(fields: [lectureId], references: [id], onDelete: Cascade)
+  transcript ChunkTranscript?
+  extraction ChunkExtraction?
+  processingAttempts ProcessingStepAttempt[]
+
+  @@unique([lectureId, chunkIndex], map: "uq_chunks_lecture_index")
+  @@index([status], map: "idx_chunks_status")
+  @@map("lecture_chunks")
+}
+
+model ChunkTranscript {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chunkId         String   @unique @map("chunk_id") @db.Uuid
+  transcriptText  String   @map("transcript_text")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  chunk LectureChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+
+  @@map("chunk_transcripts")
+}
+
+model ChunkExtraction {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chunkId        String   @unique @map("chunk_id") @db.Uuid
+  extractionJson Json     @map("extraction_json") @db.JsonB
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  chunk LectureChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+
+  @@map("chunk_extractions")
+}
+
+model ProcessingStepAttempt {
+  id            String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  lectureId     String                 @map("lecture_id") @db.Uuid
+  chunkId       String?                @map("chunk_id") @db.Uuid
+  stepName      String                 @map("step_name")
+  attemptNumber Int                    @map("attempt_number")
+  status        ProcessingAttemptStatus
+  errorMessage  String?                @map("error_message")
+  startedAt     DateTime               @default(now()) @map("started_at") @db.Timestamptz
+  finishedAt    DateTime?              @map("finished_at") @db.Timestamptz
+  createdAt     DateTime               @default(now()) @map("created_at") @db.Timestamptz
+
+  lecture Lecture      @relation(fields: [lectureId], references: [id], onDelete: Cascade)
+  chunk   LectureChunk?  @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+
+  @@index([lectureId, stepName, startedAt(sort: Desc)], map: "idx_attempts_lecture_step_started")
+  @@index([chunkId, stepName, startedAt(sort: Desc)], map: "idx_attempts_chunk_step_started")
+  @@index([status, startedAt(sort: Desc)], map: "idx_attempts_status_started")
+  @@map("processing_step_attempts")
 }
