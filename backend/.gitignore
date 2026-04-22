@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+*.log
+
+# Local environment files
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# OS/editor artifacts
+.DS_Store
+.vscode/
