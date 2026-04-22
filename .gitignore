@@ -137,3 +137,13 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Project files
+/docs
+/build
+.status.swp
+.env
+.DS_Store
+/generated/prisma
+.vscode/
+.cursor/
