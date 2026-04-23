@@ -34,6 +34,7 @@ export class UploadService {
       "audio/wav",
       "audio/x-wav",
       "audio/mp4",
+      "audio/mp3",
       "audio/aac",
     ]);
     if (!allowed.has(contentType)) {

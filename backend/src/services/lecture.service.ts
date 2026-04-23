@@ -1,11 +1,11 @@
 import type { LectureSourceType, LectureStatus } from "@prisma/client";
 
+import { prisma } from "../config/prisma";
 import { lectureRepository } from "../repositories/lecture.repository";
 import { ApiError } from "../utils/api-error";
 import { encodeLectureCursor } from "../utils/lecture-cursor";
 import { log } from "../utils/logger";
-import { lecturePipelineService } from "./lecture-pipeline.service";
-import { prisma } from "../config/prisma";
+import { scheduleLectureProcessing } from "./lecture-processing-scheduler";
 
 interface ListLectureParams {
   userId: string;
@@ -95,9 +95,11 @@ export class LectureService {
           errorMessage: null,
           processingStartedAt: new Date(),
           processingCompletedAt: null,
+          derivedAudioDeletedAt: null,
         },
       });
 
+      // Full pipeline reset: user-triggered retry after FAILED.
       await tx.processingStepAttempt.deleteMany({ where: { lectureId } });
       await tx.chunkTranscript.deleteMany({ where: { chunk: { lectureId } } });
       await tx.chunkExtraction.deleteMany({ where: { chunk: { lectureId } } });
@@ -105,7 +107,7 @@ export class LectureService {
       await tx.lectureNote.deleteMany({ where: { lectureId } });
     });
 
-    void lecturePipelineService.processLecture(lectureId);
+    scheduleLectureProcessing(lectureId);
     return { accepted: true };
   }
 
@@ -126,7 +128,7 @@ export class LectureService {
     });
 
     log("info", "Lecture upload finalized", { userId, lectureId });
-    void lecturePipelineService.processLecture(lectureId);
+    scheduleLectureProcessing(lectureId);
     return { accepted: true };
   }
 

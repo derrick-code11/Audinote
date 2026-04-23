@@ -1,6 +1,7 @@
 import { google } from "googleapis";
 
 import { prisma } from "../config/prisma";
+import { lectureNotesJsonSchema } from "../types/lecture-notes";
 import { googleTokenService } from "./google-token.service";
 import { log } from "../utils/logger";
 
@@ -65,19 +66,39 @@ export class GoogleDocExportWorker {
       }
       const insertIndex = Math.max(1, endIndex - 1);
 
-      const text = JSON.stringify(note.notesJson, null, 2);
+      const parsed = lectureNotesJsonSchema.safeParse(note.notesJson);
+      const fallbackText = `${JSON.stringify(note.notesJson, null, 2)}\n`;
+
+      const requests: Array<{ insertText: { location: { index: number }; text: string } }> = [];
+      if (parsed.success) {
+        const blocks: string[] = [];
+        blocks.push(parsed.data.title);
+        blocks.push("");
+        for (const section of parsed.data.sections) {
+          blocks.push(section.heading);
+          blocks.push(section.body);
+          blocks.push("");
+        }
+        for (let i = blocks.length - 1; i >= 0; i--) {
+          requests.push({
+            insertText: {
+              location: { index: insertIndex },
+              text: `${blocks[i]}\n`,
+            },
+          });
+        }
+      } else {
+        requests.push({
+          insertText: {
+            location: { index: insertIndex },
+            text: fallbackText,
+          },
+        });
+      }
+
       await docs.documents.batchUpdate({
         documentId,
-        requestBody: {
-          requests: [
-            {
-              insertText: {
-                location: { index: insertIndex },
-                text: `${text}\n`,
-              },
-            },
-          ],
-        },
+        requestBody: { requests },
       });
 
       const url = `https://docs.google.com/document/d/${documentId}/edit`;
