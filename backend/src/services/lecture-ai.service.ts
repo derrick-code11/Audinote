@@ -11,6 +11,18 @@ import {
 import { log } from "../utils/logger";
 
 export class LectureAiService {
+  private getParsedOrThrow<T>(input: {
+    parsed: T | null | undefined;
+    refusal: string | null | undefined;
+    fallbackMessage: string;
+  }): T {
+    if (input.parsed) {
+      return input.parsed;
+    }
+
+    throw new Error(input.refusal ?? input.fallbackMessage);
+  }
+
   async transcribeAudioFile(localPath: string): Promise<string> {
     const client = getOpenAIClient();
     const file = await import("node:fs").then((fs) =>
@@ -54,12 +66,11 @@ Output must exactly match the "chunk_extraction" JSON schema.`,
         "chunk_extraction",
       ),
     });
-    const parsed = completion.choices[0]?.message.parsed;
-    if (!parsed) {
-      const refusal = completion.choices[0]?.message.refusal;
-      throw new Error(refusal ?? "Chunk extraction returned no parsed content");
-    }
-    return parsed;
+    return this.getParsedOrThrow({
+      parsed: completion.choices[0]?.message.parsed,
+      refusal: completion.choices[0]?.message.refusal,
+      fallbackMessage: "Chunk extraction returned no parsed content",
+    });
   }
 
   async composeFinalNotes(input: {
@@ -125,11 +136,11 @@ Every sentence must be traceable to the supplied chunks. Produce notes that are 
         "lecture_notes",
       ),
     });
-    const parsed = completion.choices[0]?.message.parsed;
-    if (!parsed) {
-      const refusal = completion.choices[0]?.message.refusal;
-      throw new Error(refusal ?? "Final notes returned no parsed content");
-    }
+    const parsed = this.getParsedOrThrow({
+      parsed: completion.choices[0]?.message.parsed,
+      refusal: completion.choices[0]?.message.refusal,
+      fallbackMessage: "Final notes returned no parsed content",
+    });
 
     const headings = parsed.sections.map((s) => s.heading);
     for (const expected of [

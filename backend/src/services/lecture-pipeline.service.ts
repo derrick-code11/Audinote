@@ -42,6 +42,17 @@ async function downloadSegmentToFile(bucket: string, key: string, destPath: stri
 }
 
 export class LecturePipelineService {
+  private getErrorMessage(error: unknown, fallback: string): string {
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+    return fallback;
+  }
+
+  private async cleanupDirectory(dirPath: string): Promise<void> {
+    await fs.rm(dirPath, { recursive: true, force: true }).catch(() => undefined);
+  }
+
   async runFullPipelineInProcess(lectureId: string): Promise<void> {
     await this.orchestrateLecture(lectureId);
     const chunks = await prisma.lectureChunk.findMany({
@@ -100,7 +111,7 @@ export class LecturePipelineService {
           data: { status: "SUCCESS", finishedAt: new Date() },
         });
       } catch (error) {
-        const msg = (error as Error).message || "Audio assembly failed";
+        const msg = this.getErrorMessage(error, "Audio assembly failed");
         await prisma.processingStepAttempt.update({
           where: { id: attempt.id },
           data: { status: "FAILED", finishedAt: new Date(), errorMessage: msg },
@@ -201,7 +212,7 @@ export class LecturePipelineService {
           data: { status: "SUCCESS", finishedAt: new Date() },
         });
       } catch (error) {
-        const msg = (error as Error).message || "Transcription failed";
+        const msg = this.getErrorMessage(error, "Transcription failed");
         await prisma.processingStepAttempt.update({
           where: { id: attemptT.id },
           data: { status: "FAILED", finishedAt: new Date(), errorMessage: msg },
@@ -212,10 +223,10 @@ export class LecturePipelineService {
         });
         throw error;
       } finally {
-        await fs.rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+        await this.cleanupDirectory(workDir);
       }
     } else {
-      await fs.rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+      await this.cleanupDirectory(workDir);
     }
 
     const transcriptRow = await prisma.chunkTranscript.findUniqueOrThrow({ where: { chunkId } });
@@ -243,7 +254,7 @@ export class LecturePipelineService {
           data: { status: "SUCCESS", finishedAt: new Date() },
         });
       } catch (error) {
-        const msg = (error as Error).message || "Extraction failed";
+        const msg = this.getErrorMessage(error, "Extraction failed");
         await prisma.processingStepAttempt.update({
           where: { id: attemptE.id },
           data: { status: "FAILED", finishedAt: new Date(), errorMessage: msg },
@@ -435,7 +446,7 @@ export class LecturePipelineService {
       });
       log("info", "Lecture finalized", { lectureId });
     } catch (error) {
-      const msg = (error as Error).message || "Finalize failed";
+      const msg = this.getErrorMessage(error, "Finalize failed");
       await prisma.processingStepAttempt.update({
         where: { id: attempt.id },
         data: { status: "FAILED", finishedAt: new Date(), errorMessage: msg },
