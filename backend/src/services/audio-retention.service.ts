@@ -15,7 +15,7 @@ async function deleteObjectQuiet(bucket: string, key: string): Promise<void> {
 }
 
 export class AudioRetentionService {
-  /** Delete raw upload parts past `expiresAt` (PRD temporary storage). */
+  /** Delete raw upload parts past `expiresAt` */
   async sweepExpiredAudioParts(): Promise<void> {
     const parts = await prisma.lectureAudioPart.findMany({
       where: { expiresAt: { lt: new Date() }, deletedFromStorageAt: null },
@@ -33,7 +33,6 @@ export class AudioRetentionService {
     }
   }
 
-  /** Delete merged + segment WAVs for DONE lectures after `DERIVED_AUDIO_RETENTION_HOURS`. */
   async sweepDerivedLectureAudio(): Promise<void> {
     const hours = env.DERIVED_AUDIO_RETENTION_HOURS;
     if (hours <= 0) {

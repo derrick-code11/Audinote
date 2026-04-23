@@ -42,9 +42,6 @@ async function downloadSegmentToFile(bucket: string, key: string, destPath: stri
 }
 
 export class LecturePipelineService {
-  /**
-   * Full in-process run when `REDIS_URL` is unset (local dev).
-   */
   async runFullPipelineInProcess(lectureId: string): Promise<void> {
     await this.orchestrateLecture(lectureId);
     const chunks = await prisma.lectureChunk.findMany({
@@ -58,9 +55,6 @@ export class LecturePipelineService {
     await this.finalizeLecture(lectureId);
   }
 
-  /**
-   * Merge/split if needed, enqueue chunk jobs (Redis) or rely on in-process caller.
-   */
   async orchestrateLecture(lectureId: string): Promise<void> {
     const lecture = await prisma.lecture.findFirst({
       where: { id: lectureId, deletedAt: null },
