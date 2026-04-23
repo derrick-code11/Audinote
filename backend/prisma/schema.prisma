@@ -125,6 +125,7 @@ model Lecture {
   errorMessage          String?           @map("error_message")
   processingStartedAt   DateTime?         @map("processing_started_at") @db.Timestamptz
   processingCompletedAt DateTime?         @map("processing_completed_at") @db.Timestamptz
+  derivedAudioDeletedAt DateTime?         @map("derived_audio_deleted_at") @db.Timestamptz
   createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz
   updatedAt             DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt             DateTime?         @map("deleted_at") @db.Timestamptz
