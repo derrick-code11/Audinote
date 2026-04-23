@@ -8,6 +8,87 @@ import { log } from "../utils/logger";
 export class GoogleDocExportWorker {
   private inflight = false;
 
+  private static readonly DEFAULT_DOC_TITLE = "Audinote export";
+
+  private getDocTitle(notesJson: unknown): string {
+    const maybeTitle = (notesJson as { title?: unknown }).title;
+    return typeof maybeTitle === "string" ? maybeTitle : GoogleDocExportWorker.DEFAULT_DOC_TITLE;
+  }
+
+  private buildInsertRequests(
+    notesJson: unknown,
+    insertIndex: number
+  ): Array<{ insertText: { location: { index: number }; text: string } }> {
+    const parsed = lectureNotesJsonSchema.safeParse(notesJson);
+    const fallbackText = `${JSON.stringify(notesJson, null, 2)}\n`;
+    const requests: Array<{ insertText: { location: { index: number }; text: string } }> = [];
+
+    if (!parsed.success) {
+      requests.push({
+        insertText: {
+          location: { index: insertIndex },
+          text: fallbackText,
+        },
+      });
+      return requests;
+    }
+
+    const blocks: string[] = [parsed.data.title, ""];
+    for (const section of parsed.data.sections) {
+      blocks.push(section.heading);
+      blocks.push(section.body);
+      blocks.push("");
+    }
+
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      requests.push({
+        insertText: {
+          location: { index: insertIndex },
+          text: `${blocks[i]}\n`,
+        },
+      });
+    }
+
+    return requests;
+  }
+
+  private getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : "EXPORT_FAILED";
+  }
+
+  private async claimPendingExport(): Promise<{
+    id: string;
+    lectureId: string;
+    userId: string;
+  } | null> {
+    const pending = await prisma.googleDocExport.findFirst({
+      where: { status: "PENDING" },
+      orderBy: [{ attemptedAt: "asc" }, { id: "asc" }],
+      select: { id: true, lectureId: true, userId: true, attemptedAt: true },
+    });
+    if (!pending) {
+      return null;
+    }
+
+    const claimed = await prisma.googleDocExport.updateMany({
+      where: {
+        id: pending.id,
+        status: "PENDING",
+        attemptedAt: pending.attemptedAt,
+      },
+      data: { attemptedAt: new Date() },
+    });
+    if (claimed.count !== 1) {
+      return null;
+    }
+
+    return {
+      id: pending.id,
+      lectureId: pending.lectureId,
+      userId: pending.userId,
+    };
+  }
+
   async tick(): Promise<void> {
     if (this.inflight) {
       return;
@@ -15,19 +96,11 @@ export class GoogleDocExportWorker {
     this.inflight = true;
     let exportId: string | null = null;
     try {
-      const pending = await prisma.googleDocExport.findFirst({
-        where: { status: "PENDING" },
-        orderBy: [{ attemptedAt: "asc" }, { id: "asc" }],
-      });
+      const pending = await this.claimPendingExport();
       if (!pending) {
         return;
       }
       exportId = pending.id;
-
-      await prisma.googleDocExport.update({
-        where: { id: pending.id },
-        data: { attemptedAt: new Date() },
-      });
 
       const lecture = await prisma.lecture.findFirst({
         where: { id: pending.lectureId, deletedAt: null },
@@ -46,10 +119,7 @@ export class GoogleDocExportWorker {
       const oauth2 = await googleTokenService.getOAuth2ClientForUser(pending.userId);
       const docs = google.docs({ version: "v1", auth: oauth2 });
 
-      const title =
-        typeof (note.notesJson as { title?: unknown }).title === "string"
-          ? ((note.notesJson as { title: string }).title as string)
-          : "Audinote export";
+      const title = this.getDocTitle(note.notesJson);
 
       const created = await docs.documents.create({
         requestBody: { title },
@@ -66,35 +136,7 @@ export class GoogleDocExportWorker {
       }
       const insertIndex = Math.max(1, endIndex - 1);
 
-      const parsed = lectureNotesJsonSchema.safeParse(note.notesJson);
-      const fallbackText = `${JSON.stringify(note.notesJson, null, 2)}\n`;
-
-      const requests: Array<{ insertText: { location: { index: number }; text: string } }> = [];
-      if (parsed.success) {
-        const blocks: string[] = [];
-        blocks.push(parsed.data.title);
-        blocks.push("");
-        for (const section of parsed.data.sections) {
-          blocks.push(section.heading);
-          blocks.push(section.body);
-          blocks.push("");
-        }
-        for (let i = blocks.length - 1; i >= 0; i--) {
-          requests.push({
-            insertText: {
-              location: { index: insertIndex },
-              text: `${blocks[i]}\n`,
-            },
-          });
-        }
-      } else {
-        requests.push({
-          insertText: {
-            location: { index: insertIndex },
-            text: fallbackText,
-          },
-        });
-      }
+      const requests = this.buildInsertRequests(note.notesJson, insertIndex);
 
       await docs.documents.batchUpdate({
         documentId,
@@ -116,13 +158,14 @@ export class GoogleDocExportWorker {
 
       log("info", "Google Doc export completed", { exportId: pending.id, lectureId: pending.lectureId });
     } catch (error) {
-      log("error", "Google Doc export failed", { error: (error as Error).message });
+      const errorMessage = this.getErrorMessage(error);
+      log("error", "Google Doc export failed", { error: errorMessage });
       if (exportId) {
         await prisma.googleDocExport.update({
           where: { id: exportId },
           data: {
             status: "FAILED",
-            errorMessage: (error as Error).message || "EXPORT_FAILED",
+            errorMessage,
             completedAt: new Date(),
           },
         });
