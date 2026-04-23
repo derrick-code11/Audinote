@@ -36,6 +36,7 @@ export function decodeLectureCursor(cursor: string): { id: string; createdAt: Da
     }
     return { id: parsed.id, createdAt: new Date(parsed.createdAt) };
   } catch (error) {
-    throw new ApiError(422, "VALIDATION_ERROR", "Invalid cursor", { details: (error as Error).message });
+    const details = error instanceof Error ? error.message : "Invalid cursor";
+    throw new ApiError(422, "VALIDATION_ERROR", "Invalid cursor", { details });
   }
 }

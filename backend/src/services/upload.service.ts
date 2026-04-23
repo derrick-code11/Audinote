@@ -25,44 +25,40 @@ interface CompletePartInput {
   durationMs?: number;
 }
 
+const MAX_UPLOAD_PART_SIZE_BYTES = 250 * 1024 * 1024;
+const CONTENT_TYPE_EXTENSIONS: Readonly<Record<string, string>> = {
+  "audio/webm": "webm",
+  "audio/ogg": "ogg",
+  "audio/mpeg": "mp3",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/mp4": "m4a",
+  "audio/mp3": "mp3",
+  "audio/aac": "aac",
+};
+
 export class UploadService {
   private assertAllowedContentType(contentType: string): void {
-    const allowed = new Set([
-      "audio/webm",
-      "audio/ogg",
-      "audio/mpeg",
-      "audio/wav",
-      "audio/x-wav",
-      "audio/mp4",
-      "audio/mp3",
-      "audio/aac",
-    ]);
-    if (!allowed.has(contentType)) {
+    if (!(contentType in CONTENT_TYPE_EXTENSIONS)) {
       throw new ApiError(422, "VALIDATION_ERROR", "Unsupported content type for upload");
+    }
+  }
+
+  private assertPartSizeWithinLimit(sizeBytes: number): void {
+    if (sizeBytes > MAX_UPLOAD_PART_SIZE_BYTES) {
+      throw new ApiError(422, "VALIDATION_ERROR", "sizeBytes is too large for a single part");
+    }
+  }
+
+  private assertLectureExists(lecture: Awaited<ReturnType<typeof lectureRepository.findByIdForUser>>): void {
+    if (!lecture) {
+      throw new ApiError(404, "NOT_FOUND", "Lecture not found");
     }
   }
 
   private buildObjectKey(input: { userId: string; lectureId: string; partNumber: number; contentType: string }): string {
     this.assertAllowedContentType(input.contentType);
-    const ext = (() => {
-      switch (input.contentType) {
-        case "audio/webm":
-          return "webm";
-        case "audio/ogg":
-          return "ogg";
-        case "audio/mpeg":
-          return "mp3";
-        case "audio/wav":
-        case "audio/x-wav":
-          return "wav";
-        case "audio/mp4":
-          return "m4a";
-        case "audio/aac":
-          return "aac";
-        default:
-          return "bin";
-      }
-    })();
+    const ext = CONTENT_TYPE_EXTENSIONS[input.contentType];
     const padded = String(input.partNumber).padStart(5, "0");
     return `lectures/${input.userId}/${input.lectureId}/parts/${padded}.${ext}`;
   }
@@ -77,13 +73,9 @@ export class UploadService {
 
   async presignPart(input: PresignInput) {
     const lecture = await lectureRepository.findByIdForUser(input.lectureId, input.userId);
-    if (!lecture) {
-      throw new ApiError(404, "NOT_FOUND", "Lecture not found");
-    }
+    this.assertLectureExists(lecture);
     this.assertAllowedContentType(input.contentType);
-    if (input.sizeBytes > 250 * 1024 * 1024) {
-      throw new ApiError(422, "VALIDATION_ERROR", "sizeBytes is too large for a single part");
-    }
+    this.assertPartSizeWithinLimit(input.sizeBytes);
 
     const s3Key = this.buildObjectKey({
       userId: input.userId,
@@ -113,13 +105,9 @@ export class UploadService {
 
   async completePart(input: CompletePartInput) {
     const lecture = await lectureRepository.findByIdForUser(input.lectureId, input.userId);
-    if (!lecture) {
-      throw new ApiError(404, "NOT_FOUND", "Lecture not found");
-    }
+    this.assertLectureExists(lecture);
     this.assertAllowedContentType(input.contentType);
-    if (input.sizeBytes > 250 * 1024 * 1024) {
-      throw new ApiError(422, "VALIDATION_ERROR", "sizeBytes is too large for a single part");
-    }
+    this.assertPartSizeWithinLimit(input.sizeBytes);
 
     const expectedKey = this.buildObjectKey({
       userId: input.userId,

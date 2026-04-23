@@ -63,6 +63,10 @@ const patchLectureBodySchema = z.object({
   title: z.string().min(1).max(255),
 });
 
+function getAuthUserId(req: Request): string {
+  return (req as AuthenticatedRequest).auth.userId;
+}
+
 function mapSourceType(input: "live_recording" | "file_upload"): LectureSourceType {
   return input === "live_recording" ? "LIVE_RECORDING" : "FILE_UPLOAD";
 }
@@ -94,7 +98,7 @@ function mapExportAction(input: "create" | "update" | "recreate"): ExportAction 
 }
 
 export async function createLecture(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const userId = (req as AuthenticatedRequest).auth.userId;
+  const userId = getAuthUserId(req);
   const body = parseSchema(createLectureBodySchema, req.body);
 
   const data = await lectureService.createLecture(userId, mapSourceType(body.sourceType), body.title);
@@ -102,7 +106,7 @@ export async function createLecture(req: Request, res: Response, next: NextFunct
 }
 
 export async function listLectures(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const userId = (req as AuthenticatedRequest).auth.userId;
+  const userId = getAuthUserId(req);
   const query = parseSchema(listLecturesQuerySchema, req.query);
 
   const data = await lectureService.listLectures({
@@ -121,14 +125,14 @@ export async function listLectures(req: Request, res: Response, next: NextFuncti
 }
 
 export async function getLectureById(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const userId = (req as AuthenticatedRequest).auth.userId;
+  const userId = getAuthUserId(req);
   const params = parseSchema(lectureIdParamSchema, req.params);
   const data = await lectureService.getLectureById(userId, params.lectureId);
   sendOk(res, data);
 }
 
 export async function patchLecture(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const userId = (req as AuthenticatedRequest).auth.userId;
+  const userId = getAuthUserId(req);
   const params = parseSchema(lectureIdParamSchema, req.params);
   const body = parseSchema(patchLectureBodySchema, req.body);
   const data = await lectureService.updateLectureTitle(userId, params.lectureId, body.title);
@@ -136,21 +140,21 @@ export async function patchLecture(req: Request, res: Response, next: NextFuncti
 }
 
 export async function deleteLecture(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const userId = (req as AuthenticatedRequest).auth.userId;
+  const userId = getAuthUserId(req);
   const params = parseSchema(lectureIdParamSchema, req.params);
   const data = await lectureService.softDeleteLecture(userId, params.lectureId);
   sendOk(res, data);
 }
 
 export async function retryLecture(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const userId = (req as AuthenticatedRequest).auth.userId;
+  const userId = getAuthUserId(req);
   const params = parseSchema(lectureIdParamSchema, req.params);
   const data = await lectureService.retryLecture(userId, params.lectureId);
   sendAccepted(res, data);
 }
 
 export async function presignUploadPart(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const userId = (req as AuthenticatedRequest).auth.userId;
+  const userId = getAuthUserId(req);
   const params = parseSchema(lectureIdParamSchema, req.params);
   const body = parseSchema(presignPartBodySchema, req.body);
   const data = await uploadService.presignPart({
@@ -164,7 +168,7 @@ export async function presignUploadPart(req: Request, res: Response, next: NextF
 }
 
 export async function completeUploadPart(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const userId = (req as AuthenticatedRequest).auth.userId;
+  const userId = getAuthUserId(req);
   const params = parseSchema(lectureIdParamSchema, req.params);
   const body = parseSchema(completePartBodySchema, req.body);
   const data = await uploadService.completePart({
@@ -180,7 +184,7 @@ export async function completeUploadPart(req: Request, res: Response, next: Next
 }
 
 export async function finalizeUpload(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const userId = (req as AuthenticatedRequest).auth.userId;
+  const userId = getAuthUserId(req);
   const params = parseSchema(lectureIdParamSchema, req.params);
   const body = parseSchema(finalizeUploadBodySchema, req.body ?? {});
   const data = await lectureService.finalizeUpload(userId, params.lectureId, body.durationSeconds);
@@ -188,14 +192,14 @@ export async function finalizeUpload(req: Request, res: Response, next: NextFunc
 }
 
 export async function getLectureNotes(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const userId = (req as AuthenticatedRequest).auth.userId;
+  const userId = getAuthUserId(req);
   const params = parseSchema(lectureIdParamSchema, req.params);
   const data = await noteService.getLectureNotes(userId, params.lectureId);
   sendOk(res, data);
 }
 
 export async function createLectureExport(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const userId = (req as AuthenticatedRequest).auth.userId;
+  const userId = getAuthUserId(req);
   const params = parseSchema(lectureIdParamSchema, req.params);
   const body = parseSchema(createExportBodySchema, req.body);
   const data = await exportService.triggerExport(userId, params.lectureId, mapExportAction(body.action));
@@ -203,7 +207,7 @@ export async function createLectureExport(req: Request, res: Response, next: Nex
 }
 
 export async function listLectureExports(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const userId = (req as AuthenticatedRequest).auth.userId;
+  const userId = getAuthUserId(req);
   const params = parseSchema(lectureIdParamSchema, req.params);
   const query = parseSchema(listExportsQuerySchema, req.query);
   const data = await exportService.listExports(
