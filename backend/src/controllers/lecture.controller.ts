@@ -107,10 +107,10 @@ export async function listLectures(req: Request, res: Response, next: NextFuncti
 
   const data = await lectureService.listLectures({
     userId,
-    limit: query.limit,
+    limit: query.limit ?? 20,
     cursor: query.cursor,
-    sortBy: query.sortBy,
-    sortOrder: query.sortOrder,
+    sortBy: query.sortBy ?? "createdAt",
+    sortOrder: query.sortOrder ?? "desc",
     status: query.status ? mapLectureStatus(query.status) : undefined,
     sourceType: query.sourceType ? mapSourceType(query.sourceType) : undefined,
     createdFrom: query.createdFrom,
@@ -206,6 +206,11 @@ export async function listLectureExports(req: Request, res: Response, next: Next
   const userId = (req as AuthenticatedRequest).auth.userId;
   const params = parseSchema(lectureIdParamSchema, req.params);
   const query = parseSchema(listExportsQuerySchema, req.query);
-  const data = await exportService.listExports(userId, params.lectureId, query.limit, query.cursor);
+  const data = await exportService.listExports(
+    userId,
+    params.lectureId,
+    query.limit ?? 20,
+    query.cursor,
+  );
   sendOk(res, data);
 }
